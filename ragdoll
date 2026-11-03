@@ -67,7 +67,6 @@ local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local TS = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
-local RunService = game:GetService("RunService")
 
 local AutoUseToggles, AutoUseLoops, RagdollRespawnHooks = {}, {}, {}
 local RedeemRespawnHook, DuckSelfConnection
@@ -76,14 +75,19 @@ local MonkeySelfConns, MonkeySelfSoundConns, MonkeyAllConns, MonkeyAllWatches = 
 
 local AllToggles = {}
 local AllHooks = {}
+local CoilSpeedCleanup = nil
 
 local function TrackToggle(toggle)
-    if toggle then table.insert(AllToggles, toggle) end
+    if toggle then
+        table.insert(AllToggles, toggle)
+    end
     return toggle
 end
 
 local function TrackHook(conn)
-    if conn then table.insert(AllHooks, conn) end
+    if conn then
+        table.insert(AllHooks, conn)
+    end
     return conn
 end
 
@@ -104,7 +108,10 @@ local function DisableAll()
         RedeemRespawnHook = nil
     end
     getgenv().CoilSpeedEnabled = false
-    if CoilSpeedCleanup then pcall(CoilSpeedCleanup) CoilSpeedCleanup = nil end
+    if CoilSpeedCleanup then
+        pcall(CoilSpeedCleanup)
+        CoilSpeedCleanup = nil
+    end
     getgenv().DuckAllActive = false
     getgenv().MonkeyAllActive = false
     local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
@@ -131,10 +138,10 @@ for _, h in ipairs(Heads) do
     if not (h.headless or h.reset) then HeadMeshSet[h.mesh] = true end
 end
 
-local CurrentFace, CurrentMesh, IsHeadless, IsBusy
+local CurrentFace, CurrentMesh, _IsHeadless, IsBusy
 
 local function FireAppearance(mesh, face, headless, reset)
-    if IsBusy then return end
+    if IsBusy == true then return end
     IsBusy = true
     ApplyAppearance:FireServer(mesh, face, headless, reset)
     task.delay(0.5, function() IsBusy = false end)
@@ -232,17 +239,27 @@ local function ApplyFakePush()
     end)
 end
 
-local function ApplySpeedTool()
-    local tool = Instance.new("Tool")
-    tool.RequiresHandle = false
-    tool.Name = "SpeedTool"
-    tool.Parent = LP.Backpack
+local function ApplySpeedControl(isCoilTool)
+    local tool = nil
+    if not isCoilTool then
+        tool = Instance.new("Tool")
+        tool.RequiresHandle = false
+        tool.Name = "SpeedTool"
+        tool.Parent = LP.Backpack
+    end
 
-    local baseSpeed, minSpeed, maxSpeed, step = 16, 1, 16, 0.5
+    local baseSpeed = 16
+    local h0 = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if h0 then baseSpeed = h0.WalkSpeed end
+
+    local minSpeed, step = 1, 0.5
     local speed = baseSpeed
+    local maxSpeed = baseSpeed
     local savedSpeed = nil
     local eHeld, qHeld = false, false
     local eLoop, qLoop = nil, nil
+    local currentTool = nil
+    local waitingForCoil = false
     local conns = {}
 
     local function applySpeed()
@@ -255,11 +272,33 @@ local function ApplySpeedTool()
         applySpeed()
     end
 
+    local function findCoil(char)
+        if not char then return nil end
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and string.find(string.lower(t.Name), "coil") then
+                return t
+            end
+        end
+        return nil
+    end
+
+    local function hasCoil()
+        return findCoil(LP.Character) ~= nil
+    end
+
+    local function isActive()
+        if isCoilTool then
+            return getgenv().CoilSpeedEnabled == true and hasCoil()
+        else
+            return tool and tool.Parent == LP.Character
+        end
+    end
+
     local function startLoop(key)
         if key == "E" then
             if eLoop then return end
             eLoop = task.spawn(function()
-                while eHeld and tool.Parent == LP.Character do
+                while eHeld and isActive() do
                     setSpeed(speed + step)
                     task.wait(0.1)
                 end
@@ -268,7 +307,7 @@ local function ApplySpeedTool()
         else
             if qLoop then return end
             qLoop = task.spawn(function()
-                while qHeld and tool.Parent == LP.Character do
+                while qHeld and isActive() do
                     setSpeed(speed - step)
                     task.wait(0.1)
                 end
@@ -278,11 +317,89 @@ local function ApplySpeedTool()
     end
 
     local function stopLoop(key)
-        if key == "E" then eHeld = false eLoop = nil else qHeld = false qLoop = nil end
+        if key == "E" then
+            eHeld = false
+            eLoop = nil
+        else
+            qHeld = false
+            qLoop = nil
+        end
+    end
+
+    local function onWalkSpeedChanged()
+        if not waitingForCoil then return end
+        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if not h then return end
+        waitingForCoil = false
+        maxSpeed = h.WalkSpeed
+        speed = h.WalkSpeed
+        h.WalkSpeed = speed
+    end
+
+    local function hookHumanoid(humanoid)
+        if not humanoid then return end
+        table.insert(conns, humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(onWalkSpeedChanged))
+    end
+
+    local function onEquipCoil()
+        waitingForCoil = true
+    end
+
+    local function onUnequipCoil()
+        waitingForCoil = false
+        speed = baseSpeed
+        maxSpeed = baseSpeed
+        savedSpeed = nil
+        eHeld = false
+        qHeld = false
+        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid.WalkSpeed = baseSpeed end
+    end
+
+    local function onChildAdded(child)
+        if child:IsA("Tool") and string.find(string.lower(child.Name), "coil") then
+            currentTool = child
+            onEquipCoil()
+        end
+    end
+
+    local function onChildRemoved(child)
+        if child == currentTool then
+            currentTool = nil
+            onUnequipCoil()
+        end
+    end
+
+    local function watchCharacter(char)
+        if not char then return end
+        table.insert(conns, char.ChildAdded:Connect(onChildAdded))
+        table.insert(conns, char.ChildRemoved:Connect(onChildRemoved))
+        hookHumanoid(char:FindFirstChildOfClass("Humanoid"))
+        local existing = findCoil(char)
+        if existing then
+            currentTool = existing
+            onEquipCoil()
+        end
+    end
+
+    if isCoilTool then
+        if LP.Character then watchCharacter(LP.Character) end
+        table.insert(conns, LP.CharacterAdded:Connect(function(char)
+            currentTool = nil
+            speed = baseSpeed
+            maxSpeed = baseSpeed
+            savedSpeed = nil
+            eHeld = false
+            qHeld = false
+            waitingForCoil = false
+            task.wait(0.1)
+            watchCharacter(char)
+        end))
     end
 
     local function onInput(input, processed)
-        if processed or tool.Parent ~= LP.Character then return end
+        if processed or not isActive() then return end
+
         if input.KeyCode == Enum.KeyCode.E then
             if not eHeld then
                 eHeld = true
@@ -320,27 +437,42 @@ local function ApplySpeedTool()
     table.insert(conns, UIS.InputBegan:Connect(onInput))
     table.insert(conns, UIS.InputEnded:Connect(onInputEnded))
 
-    tool.Equipped:Connect(function()
-        speed = baseSpeed
-        savedSpeed = nil
-        stopLoop("E")
-        stopLoop("Q")
-        applySpeed()
-    end)
+    if not isCoilTool and tool then
+        tool.Equipped:Connect(function()
+            speed = baseSpeed
+            maxSpeed = baseSpeed
+            savedSpeed = nil
+            stopLoop("E")
+            stopLoop("Q")
+            applySpeed()
+        end)
 
-    tool.Unequipped:Connect(function()
+        tool.Unequipped:Connect(function()
+            local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid.WalkSpeed = baseSpeed end
+            savedSpeed = nil
+            stopLoop("E")
+            stopLoop("Q")
+        end)
+
+        tool.Destroying:Connect(function()
+            stopLoop("E")
+            stopLoop("Q")
+            for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+        end)
+    end
+
+    local cleanup = function()
+        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+        conns = {}
         local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
         if humanoid then humanoid.WalkSpeed = baseSpeed end
-        savedSpeed = nil
-        stopLoop("E")
-        stopLoop("Q")
-    end)
+    end
 
-    tool.Destroying:Connect(function()
-        stopLoop("E")
-        stopLoop("Q")
-        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-    end)
+    if isCoilTool then
+        return cleanup
+    end
+    return nil
 end
 
 local function ApplyRedeem(item)
@@ -432,11 +564,12 @@ local function RegisterRagdollRespawnHook(name, toggle, fn)
 end
 
 local function FindQuack(c)
-    if not c then return end
+    if not c then return nil end
     local duck = c:FindFirstChild("DuckProp")
     local handle = duck and duck:FindFirstChild("Handle")
     local quack = handle and handle:FindFirstChild("Quack")
     if quack and quack:IsA("Sound") then return quack end
+    return nil
 end
 
 local function FindMonkeySounds(c)
@@ -468,7 +601,8 @@ ActivateDuckSelf = function()
             end)
         end
 
-        tryHook(character) tryHook(backpack)
+        tryHook(character)
+        tryHook(backpack)
         table.insert(DuckSelfConns, backpack.ChildAdded:Connect(function() tryHook(backpack) end))
         table.insert(DuckSelfConns, LP.CharacterAdded:Connect(function(char)
             task.wait(0.5)
@@ -479,7 +613,10 @@ ActivateDuckSelf = function()
 end
 
 DeactivateDuckSelf = function()
-    if DuckSelfConnection then DuckSelfConnection:Disconnect() DuckSelfConnection = nil end
+    if DuckSelfConnection then
+        DuckSelfConnection:Disconnect()
+        DuckSelfConnection = nil
+    end
     for _, c in ipairs(DuckSelfConns) do pcall(function() c:Disconnect() end) end
     DuckSelfConns = {}
 end
@@ -513,7 +650,10 @@ local function ActivateDuckAll()
         watchContainer(player:FindFirstChildOfClass("Backpack"))
         watchContainer(player.Character)
         table.insert(DuckAllWatches[player], player.ChildAdded:Connect(function(child)
-            if child:IsA("Backpack") then watchContainer(child) TryHookDuckQuack(player) end
+            if child:IsA("Backpack") then
+                watchContainer(child)
+                TryHookDuckQuack(player)
+            end
         end))
         table.insert(DuckAllWatches[player], player.CharacterAdded:Connect(function(char)
             task.wait(0.5)
@@ -561,7 +701,8 @@ ActivateMonkeySelf = function()
             end
         end
 
-        tryHook(character) tryHook(backpack)
+        tryHook(character)
+        tryHook(backpack)
         table.insert(MonkeySelfConns, backpack.ChildAdded:Connect(function() tryHook(backpack) end))
         table.insert(MonkeySelfConns, LP.CharacterAdded:Connect(function(char)
             task.wait(0.5)
@@ -611,7 +752,10 @@ local function ActivateMonkeyAll()
         watchContainer(player:FindFirstChildOfClass("Backpack"))
         watchContainer(player.Character)
         table.insert(MonkeyAllWatches[player], player.ChildAdded:Connect(function(child)
-            if child:IsA("Backpack") then watchContainer(child) TryHookMonkeySounds(player) end
+            if child:IsA("Backpack") then
+                watchContainer(child)
+                TryHookMonkeySounds(player)
+            end
         end))
         table.insert(MonkeyAllWatches[player], player.CharacterAdded:Connect(function(char)
             task.wait(0.5)
@@ -640,187 +784,11 @@ local function DeactivateMonkeyAll()
     end
 end
 
-local CoilSpeedCleanup = nil
-
-local function ApplyCoilSpeedTool()
-    if CoilSpeedCleanup then pcall(CoilSpeedCleanup) end
-    getgenv().CoilSpeedEnabled = true
-
-    local baseSpeed = 16
-    local h0 = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-    if h0 then baseSpeed = h0.WalkSpeed end
-
-    local minSpeed, step = 1, 0.5
-    local speed = baseSpeed
-    local maxSpeed = baseSpeed
-    local savedSpeed = nil
-    local eHeld, qHeld = false, false
-    local eLoop, qLoop = nil, nil
-    local currentTool = nil
-    local waitingForCoil = false
-    local conns = {}
-
-    local function applySpeed()
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = speed end
-    end
-
-    local function setSpeed(v)
-        speed = math.clamp(v, minSpeed, maxSpeed)
-        applySpeed()
-    end
-
-    local function startLoop(key)
-        if key == "E" then
-            if eLoop then return end
-            eLoop = task.spawn(function()
-                while eHeld and hasCoil() do
-                    setSpeed(speed + step)
-                    task.wait(0.1)
-                end
-                eLoop = nil
-            end)
-        else
-            if qLoop then return end
-            qLoop = task.spawn(function()
-                while qHeld and hasCoil() do
-                    setSpeed(speed - step)
-                    task.wait(0.1)
-                end
-                qLoop = nil
-            end)
-        end
-    end
-
-    local function stopLoop(key)
-        if key == "E" then eHeld = false eLoop = nil else qHeld = false qLoop = nil end
-    end
-
-    local function findCoil(char)
-        if not char then return nil end
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and string.find(string.lower(tool.Name), "coil") then return tool end
-        end
-        return nil
-    end
-
-    local function hasCoil() return findCoil(LP.Character) ~= nil end
-
-    local function onWalkSpeedChanged()
-        if not waitingForCoil then return end
-        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if not h then return end
-        waitingForCoil = false
-        maxSpeed = h.WalkSpeed
-        speed = h.WalkSpeed
-        h.WalkSpeed = speed
-    end
-
-    local function hookHumanoid(humanoid)
-        if not humanoid then return end
-        table.insert(conns, humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(onWalkSpeedChanged))
-    end
-
-    local function onEquipCoil() waitingForCoil = true end
-
-    local function onUnequipCoil()
-        waitingForCoil = false
-        speed = baseSpeed
-        maxSpeed = baseSpeed
-        savedSpeed = nil
-        eHeld = false
-        qHeld = false
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = baseSpeed end
-    end
-
-    local function onChildAdded(child)
-        if child:IsA("Tool") and string.find(string.lower(child.Name), "coil") then
-            currentTool = child
-            onEquipCoil()
-        end
-    end
-
-    local function onChildRemoved(child)
-        if child == currentTool then
-            currentTool = nil
-            onUnequipCoil()
-        end
-    end
-
-    local function watchCharacter(char)
-        if not char then return end
-        table.insert(conns, char.ChildAdded:Connect(onChildAdded))
-        table.insert(conns, char.ChildRemoved:Connect(onChildRemoved))
-        hookHumanoid(char:FindFirstChildOfClass("Humanoid"))
-        local existing = findCoil(char)
-        if existing then
-            currentTool = existing
-            onEquipCoil()
-        end
-    end
-
-    if LP.Character then watchCharacter(LP.Character) end
-
-    table.insert(conns, LP.CharacterAdded:Connect(function(char)
-        currentTool = nil
-        speed = baseSpeed
-        maxSpeed = baseSpeed
-        savedSpeed = nil
-        eHeld = false
-        qHeld = false
-        waitingForCoil = false
-        task.wait(0.1)
-        watchCharacter(char)
-    end))
-
-    local function onInput(input, processed)
-        if processed or not getgenv().CoilSpeedEnabled then return end
-        if not hasCoil() then return end
-
-        if input.KeyCode == Enum.KeyCode.E then
-            if not eHeld then
-                eHeld = true
-                setSpeed(speed + step)
-                startLoop("E")
-            end
-        elseif input.KeyCode == Enum.KeyCode.Q then
-            if not qHeld then
-                qHeld = true
-                setSpeed(speed - step)
-                startLoop("Q")
-            end
-        elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
-            if not savedSpeed then
-                savedSpeed = speed
-                setSpeed(speed * 0.2)
-            end
-        end
-    end
-
-    local function onInputEnded(input)
-        if input.KeyCode == Enum.KeyCode.E then
-            stopLoop("E")
-        elseif input.KeyCode == Enum.KeyCode.Q then
-            stopLoop("Q")
-        elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
-            if savedSpeed then
-                speed = savedSpeed
-                savedSpeed = nil
-                applySpeed()
-            end
-        end
-    end
-
-    table.insert(conns, UIS.InputBegan:Connect(onInput))
-    table.insert(conns, UIS.InputEnded:Connect(onInputEnded))
-
-    CoilSpeedCleanup = function()
-        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-        conns = {}
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = baseSpeed end
-    end
+local function GiveAllTools()
+    local backpack = LP:FindFirstChildOfClass("Backpack")
+    if not backpack then return end
+    if not backpack:FindFirstChild("fakepush") then ApplyFakePush() end
+    if not backpack:FindFirstChild("SpeedTool") then ApplySpeedControl(false) end
 end
 
 Tabs.Tools:AddInput("AutoUseDelay", {
@@ -863,7 +831,11 @@ local function BuildToolsTab()
             Default = false,
             Callback = function(v)
                 AutoUseToggles[tool.Name] = toggle
-                if v then StartAutoUse(tool.Name) else StopAutoUse(tool.Name) end
+                if v then
+                    StartAutoUse(tool.Name)
+                else
+                    StopAutoUse(tool.Name)
+                end
             end
         })
         AutoUseToggles[tool.Name] = toggle
@@ -875,8 +847,15 @@ end
 local RagdollToggle = TrackToggle(Tabs.Ragdoll:AddToggle("RagdollToggle", {
     Title = "Ragdoll script", Description = "Переключить ragdoll скрипт", Default = false,
     Callback = function(v)
-        if v then ApplyRagdollToggle(true)
-        else task.spawn(function() FreezeCharacter() ApplyRagdollToggle(false) UnfreezeCharacter() end) end
+        if v then
+            ApplyRagdollToggle(true)
+        else
+            task.spawn(function()
+                FreezeCharacter()
+                ApplyRagdollToggle(false)
+                UnfreezeCharacter()
+            end)
+        end
     end
 }))
 
@@ -921,32 +900,34 @@ RegisterRagdollRespawnHook("RagdollRemote", RagdollRemote, ApplyRagdollRemote)
 RegisterRagdollRespawnHook("RagdollFall", RagdollFall, ApplyRagdollFall)
 RegisterRagdollRespawnHook("RagdollDelay", RagdollDelay, ApplyRagdollDelay)
 
-local Headless
+local _Headless
 
 Tabs.Heads:AddButton({
     Title = "Reset", Description = "Сбросить голову и лицо",
     Callback = function()
-        CurrentFace, CurrentMesh, IsHeadless = nil, nil, false
-        if Headless and Headless.Value then Headless:SetValue(false) end
+        CurrentFace, CurrentMesh, _IsHeadless = nil, nil, false
+        if _Headless and _Headless.Value then _Headless:SetValue(false) end
         FireAppearance(nil, nil, false, true)
     end
 })
 
-Headless = TrackToggle(Tabs.Heads:AddToggle("Headless", {
+_Headless = TrackToggle(Tabs.Heads:AddToggle("Headless", {
     Title = "Headless", Default = false,
     Callback = function(v)
         if v then
-            IsHeadless = true
+            _IsHeadless = true
             CurrentMesh = nil
             CurrentFace = nil
             FireAppearance(nil, nil, true, false)
-        else IsHeadless = false end
+        else
+            _IsHeadless = false
+        end
     end
 }))
 
 LP.CharacterAdded:Connect(function()
     task.wait(0.5)
-    if Headless and Headless.Value then FireAppearance(nil, nil, true, false) end
+    if _Headless and _Headless.Value then FireAppearance(nil, nil, true, false) end
 end)
 
 local HeadButtons, FaceButtons = {}, {}
@@ -958,8 +939,8 @@ end
 
 local function SelectFace(faceId, button)
     if not FaceSet[faceId] then return end
-    IsHeadless = false
-    if Headless.Value then Headless:SetValue(false) end
+    _IsHeadless = false
+    if _Headless.Value then _Headless:SetValue(false) end
     RefreshHighlights()
     button.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
     CurrentFace = faceId
@@ -968,16 +949,19 @@ end
 
 local function SelectHead(headData, button)
     if headData.reset then
-        CurrentMesh, CurrentFace, IsHeadless = nil, nil, false
+        CurrentMesh, CurrentFace, _IsHeadless = nil, nil, false
         RefreshHighlights()
         FireAppearance(nil, nil, false, true)
         return
     end
-    if headData.headless then Headless:SetValue(true) return end
+    if headData.headless then
+        _Headless:SetValue(true)
+        return
+    end
     if not HeadMeshSet[headData.mesh] then return end
     RefreshHighlights()
     if button then button.BackgroundColor3 = Color3.fromRGB(0, 170, 255) end
-    IsHeadless = false
+    _IsHeadless = false
     CurrentMesh = headData.mesh
     FireAppearance(CurrentMesh, CurrentFace, false, false)
 end
@@ -1065,13 +1049,6 @@ task.defer(function()
     end
 end)
 
-local function GiveAllTools()
-    local backpack = LP:FindFirstChildOfClass("Backpack")
-    if not backpack then return end
-    if not backpack:FindFirstChild("fakepush") then ApplyFakePush() end
-    if not backpack:FindFirstChild("SpeedTool") then ApplySpeedTool() end
-end
-
 Tabs.Misc:AddInput("FpsCap", {
     Title = "FPS Cap", Description = "Установить лимит FPS",
     Default = GetCurrentFpsCap(), Numeric = true, Finished = true,
@@ -1099,7 +1076,7 @@ Tabs.Misc:AddButton({
 Tabs.Misc:AddButton({Title = "AFK true", Description = "Отправить AFK: true", Callback = function() FireAFK(true) end})
 Tabs.Misc:AddButton({Title = "AFK false", Description = "Отправить AFK: false", Callback = function() FireAFK(false) end})
 
-local AFKToggle = TrackToggle(Tabs.Misc:AddToggle("AFKBlock", {
+local _AFKToggle = TrackToggle(Tabs.Misc:AddToggle("AFKBlock", {
     Title = "AFK Block", Description = "Блокировать отправку AFK", Default = Settings.DefaultToggles.AFKBlock,
     Callback = function(v) ApplyAFKBlock(v) end
 }))
@@ -1131,7 +1108,9 @@ DuckSelfToggle = TrackToggle(Tabs.Misc:AddToggle("DuckSelfToggle", {
         if v then
             if DuckAllToggle and DuckAllToggle.Value then DuckAllToggle:SetValue(false) end
             ActivateDuckSelf()
-        else DeactivateDuckSelf() end
+        else
+            DeactivateDuckSelf()
+        end
     end
 }))
 
@@ -1156,7 +1135,9 @@ MonkeySelfToggle = TrackToggle(Tabs.Misc:AddToggle("MonkeySelfToggle", {
         if v then
             if MonkeyAllToggle and MonkeyAllToggle.Value then MonkeyAllToggle:SetValue(false) end
             ActivateMonkeySelf()
-        else DeactivateMonkeySelf() end
+        else
+            DeactivateMonkeySelf()
+        end
     end
 }))
 
@@ -1175,27 +1156,31 @@ MonkeyAllToggle = TrackToggle(Tabs.Misc:AddToggle("MonkeyAllToggle", {
 }))
 
 Tabs.Misc:AddButton({
-    Title = "Speed tool", Description = "E — ускорить, Q — замедлить, Ctrl — снизить скорость на 80%",
-    Callback = function() ApplySpeedTool() end
+    Title = "Speed tool", Description = "E — ускорить, Q — замедлить, Ctrl — временно снизить",
+    Callback = function() ApplySpeedControl(false) end
 })
 
 Tabs.Misc:AddButton({Title = "fakepush", Description = "Просто анимация", Callback = function() ApplyFakePush() end})
 
-local CmdrToggle = TrackToggle(Tabs.Misc:AddToggle("CmdrToggle", {
+local _CmdrToggle = TrackToggle(Tabs.Misc:AddToggle("CmdrToggle", {
     Title = "Disable Cmdr", Description = "Отключить командную строку (F2)", Default = Settings.DefaultToggles.CmdrDisable,
     Callback = function(v) ApplyCmdrToggle(v) end
 }))
 
-local CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
+local _CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
     Title = "Coil speed control",
     Description = "E — ускорить, Q — замедлить, Ctrl — временно снизить",
     Default = Settings.DefaultToggles.CoilSpeedControl,
     Callback = function(v)
         if v then
-            ApplyCoilSpeedTool()
+            getgenv().CoilSpeedEnabled = true
+            CoilSpeedCleanup = ApplySpeedControl(true)
         else
             getgenv().CoilSpeedEnabled = false
-            if CoilSpeedCleanup then pcall(CoilSpeedCleanup) CoilSpeedCleanup = nil end
+            if CoilSpeedCleanup then
+                pcall(CoilSpeedCleanup)
+                CoilSpeedCleanup = nil
+            end
         end
     end
 }))
@@ -1242,8 +1227,14 @@ local function ActivateBoombox()
 end
 
 local function DeactivateBoombox()
-    if BoomboxConnection then BoomboxConnection:Disconnect() BoomboxConnection = nil end
-    if BoomboxBackpackConn then BoomboxBackpackConn:Disconnect() BoomboxBackpackConn = nil end
+    if BoomboxConnection then
+        BoomboxConnection:Disconnect()
+        BoomboxConnection = nil
+    end
+    if BoomboxBackpackConn then
+        BoomboxBackpackConn:Disconnect()
+        BoomboxBackpackConn = nil
+    end
 end
 
 BoomboxToggle = TrackToggle(Tabs.Redeem:AddToggle("BoomboxRedeem", {
@@ -1281,7 +1272,10 @@ RedeemRespawnHook = TrackHook(LP.CharacterAdded:Connect(function()
     for _, entry in ipairs(RedeemItems) do
         if entry.toggle and entry.toggle.Value then
             if entry.item == "boombox" then
-                if BoomboxBackpackConn then BoomboxBackpackConn:Disconnect() BoomboxBackpackConn = nil end
+                if BoomboxBackpackConn then
+                    BoomboxBackpackConn:Disconnect()
+                    BoomboxBackpackConn = nil
+                end
                 ActivateBoombox()
             else
                 ApplyRedeem(entry.item)
