@@ -278,13 +278,7 @@ local function ApplySpeedTool()
     end
 
     local function stopLoop(key)
-        if key == "E" then
-            eHeld = false
-            eLoop = nil
-        else
-            qHeld = false
-            qLoop = nil
-        end
+        if key == "E" then eHeld = false eLoop = nil else qHeld = false qLoop = nil end
     end
 
     local function onInput(input, processed)
@@ -699,28 +693,18 @@ local function ApplyCoilSpeedTool()
     end
 
     local function stopLoop(key)
-        if key == "E" then
-            eHeld = false
-            eLoop = nil
-        else
-            qHeld = false
-            qLoop = nil
-        end
+        if key == "E" then eHeld = false eLoop = nil else qHeld = false qLoop = nil end
     end
 
     local function findCoil(char)
         if not char then return nil end
         for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and string.find(string.lower(tool.Name), "coil") then
-                return tool
-            end
+            if tool:IsA("Tool") and string.find(string.lower(tool.Name), "coil") then return tool end
         end
         return nil
     end
 
-    local function hasCoil()
-        return findCoil(LP.Character) ~= nil
-    end
+    local function hasCoil() return findCoil(LP.Character) ~= nil end
 
     local function onWalkSpeedChanged()
         if not waitingForCoil then return end
@@ -737,9 +721,7 @@ local function ApplyCoilSpeedTool()
         table.insert(conns, humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(onWalkSpeedChanged))
     end
 
-    local function onEquipCoil()
-        waitingForCoil = true
-    end
+    local function onEquipCoil() waitingForCoil = true end
 
     local function onUnequipCoil()
         waitingForCoil = false
