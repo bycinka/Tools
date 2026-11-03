@@ -35,8 +35,6 @@ local AutoUseDelay = Settings.AutoUseDelay
 local RedeemDelay = Settings.RedeemDelay
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
     Title = "",
@@ -54,8 +52,7 @@ local Tabs = {
     Misc = Window:AddTab({ Title = "Misc", Icon = "settings-2" }),
     Redeem = Window:AddTab({ Title = "Redeem", Icon = "gift" }),
     Tools = Window:AddTab({ Title = "Tools", Icon = "wrench" }),
-    Binds = Window:AddTab({ Title = "Binds", Icon = "keyboard" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "cog" })
+    Binds = Window:AddTab({ Title = "Binds", Icon = "keyboard" })
 }
 
 Window:SelectTab(1)
@@ -1382,14 +1379,3 @@ end
 
 for _, g in ipairs(CoreGui:GetChildren()) do HookGui(g) end
 CoreGui.ChildAdded:Connect(HookGui)
-
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-InterfaceManager:SetFolder("FluentScriptHub")
-SaveManager:SetFolder("FluentScriptHub/Specific-game")
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
-
-SaveManager:LoadAutoloadConfig()
