@@ -315,199 +315,54 @@ local function ApplySpeedTool()
     end)
 end
 
-local CoilSpeedCleanup = nil
+local function ApplyTpTool()
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "TpTool"
+    tool.CanBeDropped = false
+    tool.Parent = LP.Backpack
 
-local function ApplyCoilSpeedTool()
-    if CoilSpeedCleanup then pcall(CoilSpeedCleanup) end
-    getgenv().CoilSpeedEnabled = true
+    local function raycastFloor(pos, char)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = { char }
+        params.IgnoreWater = true
 
-    local baseSpeed = 16
-    local h0 = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-    if h0 then baseSpeed = h0.WalkSpeed end
-
-    local minSpeed, step = 1, 0.5
-    local speed = baseSpeed
-    local maxSpeed = baseSpeed
-    local savedSpeed = nil
-    local eHeld, qHeld = false, false
-    local eLoop, qLoop = nil, nil
-    local currentTool = nil
-    local waitingForCoil = false
-    local conns = {}
-
-    local function applySpeed()
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = speed end
-    end
-
-    local function setSpeed(v)
-        speed = math.clamp(v, minSpeed, maxSpeed)
-        applySpeed()
-    end
-
-    local function startLoop(key)
-        if key == "E" then
-            if eLoop then return end
-            eLoop = task.spawn(function()
-                while eHeld and hasCoil() do
-                    setSpeed(speed + step)
-                    task.wait(0.1)
-                end
-                eLoop = nil
-            end)
-        else
-            if qLoop then return end
-            qLoop = task.spawn(function()
-                while qHeld and hasCoil() do
-                    setSpeed(speed - step)
-                    task.wait(0.1)
-                end
-                qLoop = nil
-            end)
-        end
-    end
-
-    local function stopLoop(key)
-        if key == "E" then
-            eHeld = false
-            eLoop = nil
-        else
-            qHeld = false
-            qLoop = nil
-        end
-    end
-
-    local function findCoil(char)
-        if not char then return nil end
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and string.find(string.lower(tool.Name), "coil") then
-                return tool
-            end
+        local origin = pos + Vector3.new(0, 8, 0)
+        local direction = Vector3.new(0, -16, 0)
+        local result = workspace:Raycast(origin, direction, params)
+        if result then
+            return result.Position
         end
         return nil
     end
 
-    local function hasCoil()
-        return findCoil(LP.Character) ~= nil
-    end
-
-    local function onWalkSpeedChanged()
-        if not waitingForCoil then return end
-        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if not h then return end
-        waitingForCoil = false
-        maxSpeed = h.WalkSpeed
-        speed = h.WalkSpeed
-        h.WalkSpeed = speed
-    end
-
-    local function hookHumanoid(humanoid)
-        if not humanoid then return end
-        table.insert(conns, humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(onWalkSpeedChanged))
-    end
-
-    local function onEquipCoil()
-        waitingForCoil = true
-    end
-
-    local function onUnequipCoil()
-        waitingForCoil = false
-        speed = baseSpeed
-        maxSpeed = baseSpeed
-        savedSpeed = nil
-        eHeld = false
-        qHeld = false
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = baseSpeed end
-    end
-
-    local function onChildAdded(child)
-        if child:IsA("Tool") and string.find(string.lower(child.Name), "coil") then
-            currentTool = child
-            onEquipCoil()
-        end
-    end
-
-    local function onChildRemoved(child)
-        if child == currentTool then
-            currentTool = nil
-            onUnequipCoil()
-        end
-    end
-
-    local function watchCharacter(char)
+    local function teleportCharacter(targetPos)
+        local char = LP.Character
         if not char then return end
-        table.insert(conns, char.ChildAdded:Connect(onChildAdded))
-        table.insert(conns, char.ChildRemoved:Connect(onChildRemoved))
-        hookHumanoid(char:FindFirstChildOfClass("Humanoid"))
-        local existing = findCoil(char)
-        if existing then
-            currentTool = existing
-            onEquipCoil()
-        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then return end
+
+        local floorPos = raycastFloor(targetPos, char)
+        if not floorPos then return end
+
+        local hipHeight = humanoid.HipHeight
+        local rootOffset = (hrp.Size.Y / 2) + hipHeight
+
+        local finalPos = floorPos + Vector3.new(0, rootOffset, 0)
+
+        local currentCF = hrp.CFrame
+        hrp.CFrame = CFrame.new(finalPos) * (currentCF - currentCF.Position)
+
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
     end
 
-    if LP.Character then watchCharacter(LP.Character) end
-
-    table.insert(conns, LP.CharacterAdded:Connect(function(char)
-        currentTool = nil
-        speed = baseSpeed
-        maxSpeed = baseSpeed
-        savedSpeed = nil
-        eHeld = false
-        qHeld = false
-        waitingForCoil = false
-        task.wait(0.1)
-        watchCharacter(char)
-    end))
-
-    local function onInput(input, processed)
-        if processed or not getgenv().CoilSpeedEnabled then return end
-        if not hasCoil() then return end
-
-        if input.KeyCode == Enum.KeyCode.E then
-            if not eHeld then
-                eHeld = true
-                setSpeed(speed + step)
-                startLoop("E")
-            end
-        elseif input.KeyCode == Enum.KeyCode.Q then
-            if not qHeld then
-                qHeld = true
-                setSpeed(speed - step)
-                startLoop("Q")
-            end
-        elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
-            if not savedSpeed then
-                savedSpeed = speed
-                setSpeed(speed * 0.2)
-            end
-        end
-    end
-
-    local function onInputEnded(input)
-        if input.KeyCode == Enum.KeyCode.E then
-            stopLoop("E")
-        elseif input.KeyCode == Enum.KeyCode.Q then
-            stopLoop("Q")
-        elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
-            if savedSpeed then
-                speed = savedSpeed
-                savedSpeed = nil
-                applySpeed()
-            end
-        end
-    end
-
-    table.insert(conns, UIS.InputBegan:Connect(onInput))
-    table.insert(conns, UIS.InputEnded:Connect(onInputEnded))
-
-    CoilSpeedCleanup = function()
-        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-        conns = {}
-        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid.WalkSpeed = baseSpeed end
-    end
+    tool.Activated:Connect(function()
+        local mouse = LP:GetMouse()
+        if not mouse or not mouse.Hit then return end
+        teleportCharacter(mouse.Hit.Position)
+    end)
 end
 
 local function ApplyRedeem(item)
