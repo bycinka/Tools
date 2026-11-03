@@ -1049,32 +1049,65 @@ task.defer(function()
     end
 end)
 
+local function GiveAllTools()
+    local backpack = LP:FindFirstChildOfClass("Backpack")
+    if not backpack then return end
+    if not backpack:FindFirstChild("fakepush") then ApplyFakePush() end
+    if not backpack:FindFirstChild("SpeedTool") then ApplySpeedTool() end
+    if not backpack:FindFirstChild("TpTool") then ApplyTpTool() end
+end
+
 Tabs.Misc:AddInput("FpsCap", {
     Title = "FPS Cap", Description = "Установить лимит FPS",
     Default = GetCurrentFpsCap(), Numeric = true, Finished = true,
     Callback = function(v) local n = tonumber(v) if n then setfpscap(n) end end
 })
 
-Tabs.Misc:AddButton({Title = "Respawn teleport", Description = "Возродиться на том же месте", Callback = function() TeleportRespawn() end})
-
-Tabs.Misc:AddInput("RespawnDelay", {
-    Title = "Respawn delay", Description = "Задержка перед телепортом",
-    Default = "0.8", Placeholder = "0.8", Numeric = true, Finished = true,
-    Callback = function(v) local n = tonumber(v) if n then RespawnDelay = n end end
+Tabs.Misc:AddButton({
+    Title = "Sit",
+    Description = "Усадить персонажа",
+    Callback = function()
+        local char = LP.Character
+        if not char then return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        humanoid.Sit = true
+    end
 })
+
+Tabs.Misc:AddButton({
+    Title = "Give all",
+    Description = "Выдать fakepush, SpeedTool и TpTool",
+    Callback = function() GiveAllTools() end
+})
+
+Tabs.Misc:AddButton({Title = "AFK true", Description = "Отправить AFK: true", Callback = function() FireAFK(true) end})
+Tabs.Misc:AddButton({Title = "AFK false", Description = "Отправить AFK: false", Callback = function() FireAFK(false) end})
 
 local AFKToggle = TrackToggle(Tabs.Misc:AddToggle("AFKBlock", {
     Title = "AFK Block", Description = "Блокировать отправку AFK", Default = false,
     Callback = function(v) ApplyAFKBlock(v) end
 }))
 
-Tabs.Misc:AddButton({Title = "AFK true", Description = "Отправить AFK: true", Callback = function() FireAFK(true) end})
-Tabs.Misc:AddButton({Title = "AFK false", Description = "Отправить AFK: false", Callback = function() FireAFK(false) end})
-
-local CmdrToggle = TrackToggle(Tabs.Misc:AddToggle("CmdrToggle", {
-    Title = "Disable Cmdr", Description = "Отключить командную строку (F2)", Default = true,
-    Callback = function(v) ApplyCmdrToggle(v) end
-}))
+Tabs.Misc:AddButton({
+    Title = "Rejoin", Description = "Перезайти с автозапуском скрипта",
+    Callback = function()
+        if queue_on_teleport then
+            queue_on_teleport([[
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/bycinka/Ragdoll/refs/heads/main/Ragdoll"))()
+            ]])
+        else
+            Fluent:Notify({Title = "Rejoin", Content = "queue_on_teleport не поддерживается", Duration = 3})
+        end
+        if #Players:GetPlayers() <= 1 then
+            LP:Kick("\nRejoining...")
+            task.wait(0.3)
+            TS:Teleport(game.PlaceId, LP)
+        else
+            TS:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+        end
+    end
+})
 
 local DuckSelfToggle, DuckAllToggle
 DuckSelfToggle = TrackToggle(Tabs.Misc:AddToggle("DuckSelfToggle", {
@@ -1094,7 +1127,8 @@ DuckAllToggle = TrackToggle(Tabs.Misc:AddToggle("DuckAllToggle", {
             if DuckSelfToggle and DuckSelfToggle.Value then DuckSelfToggle:SetValue(false) end
             getgenv().DuckAllActive = true
             ActivateDuckAll()
-        else            getgenv().DuckAllActive = false
+        else
+            getgenv().DuckAllActive = false
             DeactivateDuckAll()
         end
     end
@@ -1126,43 +1160,22 @@ MonkeyAllToggle = TrackToggle(Tabs.Misc:AddToggle("MonkeyAllToggle", {
 }))
 
 Tabs.Misc:AddButton({
-    Title = "Rejoin", Description = "Перезайти с автозапуском скрипта",
-    Callback = function()
-        if queue_on_teleport then
-            queue_on_teleport([[
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/bycinka/Ragdoll/refs/heads/main/Ragdoll"))()
-            ]])
-        else
-            Fluent:Notify({Title = "Rejoin", Content = "queue_on_teleport не поддерживается", Duration = 3})
-        end
-        if #Players:GetPlayers() <= 1 then
-            LP:Kick("\nRejoining...")
-            task.wait(0.3)
-            TS:Teleport(game.PlaceId, LP)
-        else
-            TS:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
-        end
-    end
+    Title = "Speed tool", Description = "E — ускорить, Q — замедлить, Ctrl — снизить скорость на 80%",
+    Callback = function() ApplySpeedTool() end
 })
 
 Tabs.Misc:AddButton({Title = "fakepush", Description = "Просто анимация", Callback = function() ApplyFakePush() end})
 
 Tabs.Misc:AddButton({
-    Title = "Speed tool", Description = "E — ускорить, Q — замедлить, Ctrl — снизить скорость на 80%",
-    Callback = function() ApplySpeedTool() end
+    Title = "tptool",
+    Description = "Тул: телепорт всего персонажа в точку нажатия с ровной посадкой на пол",
+    Callback = function() ApplyTpTool() end
 })
 
-Tabs.Misc:AddButton({
-    Title = "Sit",
-    Description = "Усадить персонажа",
-    Callback = function()
-        local char = LP.Character
-        if not char then return end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-        humanoid.Sit = true
-    end
-})
+local CmdrToggle = TrackToggle(Tabs.Misc:AddToggle("CmdrToggle", {
+    Title = "Disable Cmdr", Description = "Отключить командную строку (F2)", Default = true,
+    Callback = function(v) ApplyCmdrToggle(v) end
+}))
 
 local CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
     Title = "Coil speed control",
