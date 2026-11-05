@@ -1,17 +1,14 @@
 local Settings = {
-    RespawnDelay = 0.8,
     AutoUseDelay = 0.5,
     RedeemDelay = 0,
-    
+    PunchDelay = 0,
     DefaultBinds = {
         RagdollScript = "H",
         RagdollRemote = "None",
         RagdollFall = "None",
         RagdollDelay = "None",
-        RespawnTeleport = "None",
         Physics = "None"
     },
-    
     DefaultToggles = {
         RagdollDelay = true,
         CmdrDisable = true,
@@ -21,18 +18,18 @@ local Settings = {
         DuckAll = false,
         MonkeySelf = false,
         MonkeyAll = false,
+        Punch = true,
         NotifyRagdoll = false,
         NotifyRemote = false,
         NotifyFall = false,
         NotifyDelay = false,
-        NotifyRespawn = false,
         NotifyPhysics = false
     }
 }
 
-local RespawnDelay = Settings.RespawnDelay
 local AutoUseDelay = Settings.AutoUseDelay
 local RedeemDelay = Settings.RedeemDelay
+getgenv().PunchDelay = Settings.PunchDelay
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
@@ -62,8 +59,6 @@ local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
-local TS = game:GetService("TeleportService")
-local CoreGui = game:GetService("CoreGui")
 
 local AutoUseToggles, AutoUseLoops, RagdollRespawnHooks = {}, {}, {}
 local RedeemRespawnHook, DuckSelfConnection
@@ -111,8 +106,15 @@ local function DisableAll()
     end
     getgenv().DuckAllActive = false
     getgenv().MonkeyAllActive = false
-    local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then humanoid.WalkSpeed = 16 end
+    getgenv().PunchReturn = false
+    if getgenv().PunchSpeedConn then
+        pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
+        getgenv().PunchSpeedConn = nil
+    end
+    if getgenv().PunchDelayHandle then
+        pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
+        getgenv().PunchDelayHandle = nil
+    end
 end
 
 local RedeemItems = {
@@ -225,7 +227,7 @@ local function ApplyFakePush()
     local a1 = Instance.new("Animation")
     a1.AnimationId = "rbxassetid://18550756434"
     local a2 = Instance.new("Animation")
-    a2.AnimationId = "rbxassetid://18550760670"
+    a2.AnimationId = "rbxassetid://185507607670"
 
     local t1 = animator:LoadAnimation(a1)
     local t2 = animator:LoadAnimation(a2)
@@ -475,14 +477,6 @@ end
 local function ApplyRedeem(item)
     local Event = RS:FindFirstChild("Redeem")
     if Event then Event:FireServer(item) end
-end
-
-local function TeleportRespawn()
-    local cf = LP.Character.HumanoidRootPart.CFrame
-    LP.Character.Humanoid.Health = 0
-    local ch = LP.CharacterAdded:Wait()
-    task.wait(RespawnDelay)
-    ch.HumanoidRootPart.CFrame = cf
 end
 
 local function UseTool(toolName)
@@ -1091,9 +1085,9 @@ Tabs.Misc:AddButton({
         if #Players:GetPlayers() <= 1 then
             LP:Kick("\nRejoining...")
             task.wait(0.3)
-            TS:Teleport(game.PlaceId, LP)
+            game:GetService("TeleportService"):Teleport(game.PlaceId, LP)
         else
-            TS:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+            game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
         end
     end
 })
@@ -1181,6 +1175,70 @@ local _CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
         end
     end
 }))
+
+local PunchToggle = TrackToggle(Tabs.Misc:AddToggle("PunchToggle", {
+    Title = "Punch",
+    Default = Settings.DefaultToggles.Punch,
+    Callback = function(v)
+        getgenv().PunchReturn = v
+        if v then
+            local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+            if not humanoid then return end
+            getgenv().PunchLastSpeed = humanoid.WalkSpeed
+            if getgenv().PunchSpeedConn then
+                pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
+                getgenv().PunchSpeedConn = nil
+            end
+            getgenv().PunchSpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if not getgenv().PunchReturn then return end
+                local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                if not h then return end
+                local s = h.WalkSpeed
+                if s == 1 then
+                    local prev = getgenv().PunchLastSpeed or 16
+                    local delay = getgenv().PunchDelay
+                    if delay and delay > 0 then
+                        if getgenv().PunchDelayHandle then
+                            pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
+                        end
+                        getgenv().PunchDelayHandle = task.delay(delay, function()
+                            if not getgenv().PunchReturn then return end
+                            local hh = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                            if hh then hh.WalkSpeed = prev end
+                            getgenv().PunchDelayHandle = nil
+                        end)
+                    else
+                        h.WalkSpeed = prev
+                    end
+                else
+                    getgenv().PunchLastSpeed = s
+                end
+            end)
+        else
+            if getgenv().PunchSpeedConn then
+                pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
+                getgenv().PunchSpeedConn = nil
+            end
+            if getgenv().PunchDelayHandle then
+                pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
+                getgenv().PunchDelayHandle = nil
+            end
+        end
+    end
+}))
+
+Tabs.Misc:AddInput("PunchDelay", {
+    Title = "Punch delay",
+    Description = "",
+    Default = tostring(Settings.PunchDelay),
+    Numeric = true,
+    Finished = false,
+    Placeholder = "0",
+    Callback = function(v)
+        local n = tonumber(v)
+        getgenv().PunchDelay = n
+    end
+})
 
 Tabs.Redeem:AddInput("RedeemDelay", {
     Title = "Redeem delay", Description = "Задержка тумблеров",
@@ -1327,17 +1385,6 @@ local DelayBind = Tabs.Binds:AddKeybind("DelayBind", {
     end
 })
 
-Tabs.Binds:AddToggle("RespawnNotify", {Title = "Notify respawn teleport", Description = "Показывать уведомление при нажатии клавиши", Default = Settings.DefaultToggles.NotifyRespawn})
-local RespawnBind = Tabs.Binds:AddKeybind("RespawnBind", {
-    Title = "Respawn teleport bind", Mode = "Toggle", Default = Settings.DefaultBinds.RespawnTeleport,
-    Callback = function()
-        TeleportRespawn()
-        if Options.RespawnNotify and Options.RespawnNotify.Value then
-            Fluent:Notify({Title = "Respawn teleport", Content = "Активировано", Duration = 3})
-        end
-    end
-})
-
 Tabs.Binds:AddToggle("PhysicsNotify", {Title = "Notify physics", Description = "Показывать уведомление при нажатии клавиши", Default = Settings.DefaultToggles.NotifyPhysics})
 local PhysicsBind = Tabs.Binds:AddKeybind("PhysicsBind", {
     Title = "Physics bind", Mode = "Toggle", Default = Settings.DefaultBinds.Physics,
@@ -1360,7 +1407,6 @@ Tabs.Binds:AddButton({
         RemoteBind:SetValue("None", "Toggle")
         FallBind:SetValue("None", "Toggle")
         DelayBind:SetValue("None", "Toggle")
-        RespawnBind:SetValue("None", "Toggle")
         PhysicsBind:SetValue("None", "Toggle")
     end
 })
@@ -1370,12 +1416,6 @@ ApplyRagdollRemote(Options.RagdollRemote.Value)
 ApplyRagdollFall(Options.RagdollFall.Value)
 ApplyRagdollDelay(Options.RagdollDelay.Value)
 
-local function HookGui(gui)
-    if not gui:IsA("ScreenGui") or gui.Name ~= "ScreenGui" then return end
-    gui.Destroying:Connect(function()
-        pcall(DisableAll)
-    end)
-end
-
-for _, g in ipairs(CoreGui:GetChildren()) do HookGui(g) end
-CoreGui.ChildAdded:Connect(HookGui)
+Window.Root.Destroying:Connect(function()
+    task.spawn(DisableAll)
+end)
