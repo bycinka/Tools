@@ -1176,56 +1176,82 @@ local _CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
     end
 }))
 
+local function DetachPunchHook()
+    if getgenv().PunchSpeedConn then
+        pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
+        getgenv().PunchSpeedConn = nil
+    end
+    if getgenv().PunchDelayHandle then
+        pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
+        getgenv().PunchDelayHandle = nil
+    end
+end
+
+local function AttachPunchHook(humanoid)
+    DetachPunchHook()
+    if not humanoid then
+        humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    end
+    if not humanoid then return end
+    if not getgenv().PunchReturn then return end
+
+    getgenv().PunchLastSpeed = humanoid.WalkSpeed
+
+    getgenv().PunchSpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if not getgenv().PunchReturn then return end
+        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if not h then return end
+        local s = h.WalkSpeed
+        if s == 1 then
+            local prev = getgenv().PunchLastSpeed or 16
+            local delay = getgenv().PunchDelay
+            if delay and delay > 0 then
+                if getgenv().PunchDelayHandle then
+                    pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
+                end
+                getgenv().PunchDelayHandle = task.delay(delay, function()
+                    if not getgenv().PunchReturn then return end
+                    local hh = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                    if hh then hh.WalkSpeed = prev end
+                    getgenv().PunchDelayHandle = nil
+                end)
+            else
+                h.WalkSpeed = prev
+            end
+        else
+            getgenv().PunchLastSpeed = s
+        end
+    end)
+end
+
 local PunchToggle = TrackToggle(Tabs.Misc:AddToggle("PunchToggle", {
     Title = "Punch",
     Default = Settings.DefaultToggles.Punch,
     Callback = function(v)
         getgenv().PunchReturn = v
         if v then
-            local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-            if not humanoid then return end
-            getgenv().PunchLastSpeed = humanoid.WalkSpeed
-            if getgenv().PunchSpeedConn then
-                pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
-                getgenv().PunchSpeedConn = nil
-            end
-            getgenv().PunchSpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-                if not getgenv().PunchReturn then return end
-                local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-                if not h then return end
-                local s = h.WalkSpeed
-                if s == 1 then
-                    local prev = getgenv().PunchLastSpeed or 16
-                    local delay = getgenv().PunchDelay
-                    if delay and delay > 0 then
-                        if getgenv().PunchDelayHandle then
-                            pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
-                        end
-                        getgenv().PunchDelayHandle = task.delay(delay, function()
-                            if not getgenv().PunchReturn then return end
-                            local hh = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-                            if hh then hh.WalkSpeed = prev end
-                            getgenv().PunchDelayHandle = nil
-                        end)
-                    else
-                        h.WalkSpeed = prev
-                    end
-                else
-                    getgenv().PunchLastSpeed = s
-                end
-            end)
+            AttachPunchHook()
         else
-            if getgenv().PunchSpeedConn then
-                pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
-                getgenv().PunchSpeedConn = nil
-            end
-            if getgenv().PunchDelayHandle then
-                pcall(function() task.cancel(getgenv().PunchDelayHandle) end)
-                getgenv().PunchDelayHandle = nil
-            end
+            DetachPunchHook()
         end
     end
 }))
+
+TrackHook(LP.CharacterAdded:Connect(function(char)
+    local humanoid = char:WaitForChild("Humanoid", 5)
+    if not humanoid then return end
+    task.wait(0.1)
+    if getgenv().PunchReturn then
+        AttachPunchHook(humanoid)
+    end
+end))
+
+if LP.Character then
+    local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid and getgenv().PunchReturn then
+        task.defer(function() AttachPunchHook(humanoid) end)
+    end
+end
 
 Tabs.Misc:AddInput("PunchDelay", {
     Title = "Punch delay",
