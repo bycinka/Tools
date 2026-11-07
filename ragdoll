@@ -23,7 +23,8 @@ local Settings = {
         NotifyRemote = false,
         NotifyFall = false,
         NotifyDelay = false,
-        NotifyPhysics = false
+        NotifyPhysics = false,
+        DevConsoleUnblock = true
     }
 }
 
@@ -192,6 +193,19 @@ local function ApplyRagdollToggle(state)
         if c:IsA("LocalScript") then
             local ok, code = pcall(decompile, c)
             if ok and code and code:find("LocalRagdollEvent") and code:find("RagdollState") and code:find("FreeCoins") then
+                c.Disabled = state
+            end
+        end
+    end
+end
+
+local function ApplyDevConsoleUnblock(state)
+    local ps = LP:FindFirstChild("PlayerScripts")
+    if not ps then return end
+    for _, c in ipairs(ps:GetChildren()) do
+        if c:IsA("LocalScript") then
+            local ok, code = pcall(decompile, c)
+            if ok and type(code) == "string" and code:find("DevConsoleVisible", 1, true) then
                 c.Disabled = state
             end
         end
@@ -1183,6 +1197,13 @@ local _CoilSpeedToggle = TrackToggle(Tabs.Misc:AddToggle("CoilSpeedToggle", {
     end
 }))
 
+local _DevConsoleToggle = TrackToggle(Tabs.Misc:AddToggle("DevConsoleToggle", {
+    Title = "DevConsole unblock",
+    Description = "Отключить скрипт, блокирующий консоль (F9)",
+    Default = Settings.DefaultToggles.DevConsoleUnblock,
+    Callback = function(v) ApplyDevConsoleUnblock(v) end
+}))
+
 local function DetachPunchHook()
     if getgenv().PunchSpeedConn then
         pcall(function() getgenv().PunchSpeedConn:Disconnect() end)
@@ -1448,6 +1469,7 @@ ApplyRagdollToggle(Options.RagdollToggle.Value)
 ApplyRagdollRemote(Options.RagdollRemote.Value)
 ApplyRagdollFall(Options.RagdollFall.Value)
 ApplyRagdollDelay(Options.RagdollDelay.Value)
+ApplyDevConsoleUnblock(Options.DevConsoleToggle.Value)
 
 Window.Root.Destroying:Connect(function()
     task.spawn(DisableAll)
