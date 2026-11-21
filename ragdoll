@@ -1063,7 +1063,7 @@ end)
 
 Tabs.Misc:AddInput("FpsCap", {
     Title = "FPS Cap", Description = "Установить лимит FPS",
-    Default = GetCurrentFpsCap(), Numeric = true, Finished = true,
+    Default = GetCurrentFpsCap(), Numeric = true, Finished = false,
     Callback = function(v) local n = tonumber(v) if n then setfpscap(n) end end
 })
 
