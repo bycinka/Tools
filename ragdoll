@@ -1178,10 +1178,10 @@ Tabs.Misc:AddButton({
     Title = "AdReward Cake",
     Callback = function()
         RS:FindFirstChild("AdReward") and RS.AdReward:FireServer("Cake")
-        local ls = LP.PlayerGui:FindFirstChild("EVILRewards")
-            and LP.PlayerGui.EVILRewards:FindFirstChild("Main")
-            and LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true)
-            and LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true):FindFirstChildOfClass("LocalScript")
+        local ls = LP.PlayerGui:FindFirstChild("EVILRewards") and
+                   LP.PlayerGui.EVILRewards:FindFirstChild("Main") and
+                   LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true) and
+                   LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true):FindFirstChildOfClass("LocalScript")
         if ls then
             ls.Disabled = true
             ls.Disabled = false
