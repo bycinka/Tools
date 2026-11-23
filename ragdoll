@@ -1177,10 +1177,10 @@ Tabs.Misc:AddButton({Title = "fakepush", Description = "Просто анима�
 Tabs.Misc:AddButton({
     Title = "AdReward Cake",
     Callback = function()
-        RS.AdReward:FireServer("Cake")
         local ls = LP.PlayerGui.EVILRewards.Main:GetChildren()[9].TextButton.LocalScript
         ls.Disabled = true
         ls.Disabled = false
+        RS.AdReward:FireServer("Cake")
     end
 })
 
