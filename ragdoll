@@ -1174,6 +1174,21 @@ Tabs.Misc:AddButton({
 
 Tabs.Misc:AddButton({Title = "fakepush", Description = "Просто анимация", Callback = function() ApplyFakePush() end})
 
+Tabs.Misc:AddButton({
+    Title = "AdReward Cake",
+    Callback = function()
+        RS:FindFirstChild("AdReward") and RS.AdReward:FireServer("Cake")
+        local ls = LP.PlayerGui:FindFirstChild("EVILRewards")
+            and LP.PlayerGui.EVILRewards:FindFirstChild("Main")
+            and LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true)
+            and LP.PlayerGui.EVILRewards.Main:FindFirstChild("TextButton", true):FindFirstChildOfClass("LocalScript")
+        if ls then
+            ls.Disabled = true
+            ls.Disabled = false
+        end
+    end
+})
+
 local _CmdrToggle = TrackToggle(Tabs.Misc:AddToggle("CmdrToggle", {
     Title = "Disable Cmdr", Description = "Отключить командную строку (F2)", Default = Settings.DefaultToggles.CmdrDisable,
     Callback = function(v) ApplyCmdrToggle(v) end
