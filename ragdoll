@@ -1180,7 +1180,6 @@ Tabs.Misc:AddButton({
         local ls = LP.PlayerGui.EVILRewards.Main:GetChildren()[9].TextButton.LocalScript
         ls.Disabled = true
         ls.Disabled = false
-        RS.AdReward:FireServer("Cake")
     end
 })
 
